@@ -52,13 +52,13 @@ const THREAT_PATTERNS = {
     /on\w+\s*=/gi,
   ],
   sqlInjection: [
-    /('|(\\')|(;|\\;)|(--|\\/\*)|(\\|\\|))/gi,
+    /['";]|--|\/\*|\*\/|\|\|/gi,
     /union\s+select/gi,
     /drop\s+table/gi,
   ],
   pathTraversal: [
     /\.\.\//g,
-    /\.\.\\\/g,
+    /\.\.\\/g,
     /%2e%2e%2f/gi,
   ],
   commandInjection: [/[;&|`$()]/g],
