@@ -1,4 +1,4 @@
-# 🗳️ Election Process Assistant
+# 🗳️ Prompt-war-Election-
 
 > **An AI-powered, multilingual civic education platform built with Next.js and Google Cloud.**
 
@@ -152,8 +152,8 @@ Deployable today for:
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/beingaditya18/Election-Process.git
-cd Election-Process
+git clone https://github.com/c36911238-sys/Prompt-war-Election-.git
+cd Prompt-war-Election-
 npm install
 ```
 
