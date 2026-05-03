@@ -14,7 +14,7 @@ import './ChatAssistant.css';
 
 function useTts() {
   const [isTtsLoading, setIsTtsLoading] = useState(false);
-  const [ttsError, setTtsError]         = useState(null);
+  const [hasTtsError, setHasTtsError]   = useState(null);
 
   const playTtsAudio = useCallback(async (messageText, languageCode) => {
     if (isTtsLoading) return;
@@ -36,12 +36,12 @@ function useTts() {
         setIsTtsLoading(false);
       }
     } catch (ttsRequestError) {
-      setTtsError(ttsRequestError.message);
+      setHasTtsError(ttsRequestError.message);
       setIsTtsLoading(false);
     }
   }, [isTtsLoading]);
 
-  return { isTtsLoading, ttsError, playTtsAudio };
+  return { isTtsLoading, hasTtsError, playTtsAudio };
 }
 
 // ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ function useTts() {
 // ---------------------------------------------------------------------------
 
 /** Language selector dropdown */
-const LanguageSelector = React.memo(function LanguageSelector({ value, onChange }) {
+const LanguageSelector = React.memo(({ value, onChange }) => {
   return (
     <select
       className="lang-select input-glass"
@@ -66,7 +66,7 @@ const LanguageSelector = React.memo(function LanguageSelector({ value, onChange 
 });
 
 /** TTS speak button — plays Cloud TTS audio for an assistant message */
-const SpeakButton = React.memo(function SpeakButton({ messageText, languageCode }) {
+const SpeakButton = React.memo(({ messageText, languageCode }) => {
   const { isTtsLoading, playTtsAudio } = useTts();
 
   const handlePlayAudio = useCallback(() => {
@@ -91,7 +91,7 @@ const SpeakButton = React.memo(function SpeakButton({ messageText, languageCode 
 });
 
 /** Single chat message bubble */
-const MessageBubble = React.memo(function MessageBubble({ chatMessage, languageCode }) {
+const MessageBubble = React.memo(({ chatMessage, languageCode }) => {
   const ttsCode = useMemo(() =>
     SUPPORTED_LANGUAGES.find((language) => language.code === languageCode)?.ttsCode || 'en-US',
     [languageCode]
@@ -103,7 +103,7 @@ const MessageBubble = React.memo(function MessageBubble({ chatMessage, languageC
         className={`message ${chatMessage.role}`}
         dangerouslySetInnerHTML={{ __html: chatMessage.content }}
       />
-      {chatMessage.role === 'assistant' && chatMessage.id !== 'initial' && (
+      {chatMessage.role === 'assistant' && chatMessage.id !== INITIAL_MESSAGE_ID && (
         <SpeakButton
           messageText={chatMessage.content.replace(/<[^>]+>/g, '')}
           languageCode={ttsCode}
@@ -114,32 +114,44 @@ const MessageBubble = React.memo(function MessageBubble({ chatMessage, languageC
 });
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+const MAX_MESSAGE_LENGTH = 2000;
+const MAX_INPUT_LENGTH = 500;
+const INITIAL_MESSAGE_ID = 'initial';
+
+// ---------------------------------------------------------------------------
 // Random session ID — one per browser tab, stable across re-renders
 // ---------------------------------------------------------------------------
-const SESSION_ID = Math.random().toString(36).slice(2);
+const RANDOM_RADIX = 36;
+const RANDOM_SLICE_INDEX = 2;
+const SESSION_ID = Math.random().toString(RANDOM_RADIX).slice(RANDOM_SLICE_INDEX);
 
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
-const ChatAssistant = React.memo(function ChatAssistant() {
+const ChatAssistant = React.memo(() => {
   const { user } = useAuth();
 
+  // ─── State ─────────────────────────────────────────────
   const [chatHistory, setChatHistory]         = useState([
     {
       role:    'assistant',
       content: 'Hello! I am your AI Election Assistant powered by Gemini 2.0 Flash. I can help you understand the election process, voting eligibility, and schedules. How can I help you today?',
-      id:      'initial',
+      id:      INITIAL_MESSAGE_ID,
     },
   ]);
   const [inputText, setInputText]             = useState('');
   const [isLoading, setIsLoading]             = useState(false);
   const [isHistorySaveError, setIsHistorySaveError] = useState(false);
   const [hasNetworkError, setHasNetworkError] = useState(false);
+  const [inputValidationError, setInputValidationError] = useState(null);
   const [languageCode, setLanguageCode]       = useState('en');
   const previousLanguageCode                  = useRef('en');
   const messagesEndRef                        = useRef(null);
 
+  // ─── Effects ───────────────────────────────────────────
   // Auto-scroll to bottom on new messages
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -147,6 +159,7 @@ const ChatAssistant = React.memo(function ChatAssistant() {
 
   useEffect(() => { scrollToBottom(); }, [chatHistory, scrollToBottom]);
 
+  // ─── Handlers ──────────────────────────────────────────
   // Track language changes
   const handleLanguageChange = useCallback((event) => {
     const nextLanguageCode = event.target.value;
@@ -157,11 +170,40 @@ const ChatAssistant = React.memo(function ChatAssistant() {
 
   const handleInputChange = useCallback((event) => setInputText(event.target.value), []);
 
+  const sendMessageToApi = async (message, langCode) => {
+    const apiResponse = await fetch('/api/chat', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ message, language: langCode }),
+    });
+
+    const chatData = await apiResponse.json();
+    if (!apiResponse.ok) {
+      throw new Error(chatData.error || 'API error');
+    }
+    return chatData.response;
+  };
+
   const handleSendMessage = useCallback(async (event) => {
     event.preventDefault();
-    if (!inputText.trim() || isLoading) return;
 
-    const sanitizedInput = DOMPurify.sanitize(inputText);
+    const trimmedMessage = inputText.trim();
+
+    if (!trimmedMessage) {
+      setInputValidationError('Please enter a question before sending.');
+      return;
+    }
+
+    if (trimmedMessage.length > MAX_MESSAGE_LENGTH) {
+      setInputValidationError(`Your message must be under ${MAX_MESSAGE_LENGTH} characters.`);
+      return;
+    }
+
+    if (isLoading) return;
+
+    setInputValidationError(null);
+
+    const sanitizedInput = DOMPurify.sanitize(trimmedMessage);
     const userMessage = {
       role:    'user',
       content: sanitizedInput,
@@ -178,20 +220,9 @@ const ChatAssistant = React.memo(function ChatAssistant() {
     trackChatSent(languageCode, !!user);
 
     try {
-      const apiResponse = await fetch('/api/chat', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ message: sanitizedInput, language: languageCode }),
-      });
-
-      const chatData = await apiResponse.json();
-
-      if (!apiResponse.ok) {
-        throw new Error(chatData.error || 'API error');
-      }
-
+      const rawAiText = await sendMessageToApi(sanitizedInput, languageCode);
       const aiText = DOMPurify.sanitize(
-        chatData.response || "Couldn't reach the assistant. Please try again."
+        rawAiText || "Couldn't reach the assistant. Please try again."
       );
 
       const assistantMessage = {
@@ -223,8 +254,9 @@ const ChatAssistant = React.memo(function ChatAssistant() {
   }, [inputText, isLoading, languageCode, user]);
 
   // Determine if chat is empty (only the initial greeting is present)
-  const isChatEmpty = chatHistory.length === 1 && chatHistory[0].id === 'initial';
+  const isChatEmpty = chatHistory.length === 1 && chatHistory[0].id === INITIAL_MESSAGE_ID;
 
+  // ─── Render ────────────────────────────────────────────
   return (
     <div
       className="glass-panel chat-container animate-fade-in delay-200"
@@ -286,7 +318,7 @@ const ChatAssistant = React.memo(function ChatAssistant() {
         )}
 
         {chatHistory.map((chatMessage) => (
-          chatMessage.id === 'initial' && !isChatEmpty ? null : (
+          chatMessage.id === INITIAL_MESSAGE_ID && !isChatEmpty ? null : (
             <MessageBubble
               key={chatMessage.id}
               chatMessage={chatMessage}
@@ -317,11 +349,20 @@ const ChatAssistant = React.memo(function ChatAssistant() {
       )}
 
       {/* Input */}
+      {inputValidationError && (
+        <p 
+          className="input-validation-error" 
+          role="alert"
+          aria-live="assertive"
+          style={{ color: '#ff4d4f', margin: '0 0 10px 0', fontSize: '0.9rem' }}
+        >
+          {inputValidationError}
+        </p>
+      )}
       <form
         onSubmit={handleSendMessage}
         className="chat-input-form"
         aria-label="Send a message"
-        role="form"
       >
         <input
           type="text"
@@ -332,7 +373,7 @@ const ChatAssistant = React.memo(function ChatAssistant() {
           disabled={isLoading}
           aria-label="Type your election question"
           aria-describedby={hasNetworkError ? 'chat-network-error' : undefined}
-          maxLength={500}
+          maxLength={MAX_INPUT_LENGTH}
           id="chat-input"
         />
         <button
