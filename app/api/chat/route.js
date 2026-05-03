@@ -300,11 +300,20 @@ export async function POST(request) {
       );
     }
 
-  } catch (validationError) {
-    console.warn(`[API /chat] Validation error: ${validationError.message}`);
-    return createErrorResponse(validationError.message);
-  } catch (unexpectedError) {
-    console.error('[API /chat] Unexpected error:', unexpectedError);
+  } catch (error) {
+    // Handle validation errors and unexpected errors
+    if (error.message && (
+      error.message.includes('Invalid request body') ||
+      error.message.includes('Message is required') ||
+      error.message.includes('Message too long') ||
+      error.message.includes('Invalid message content') ||
+      error.message.includes('Invalid language code')
+    )) {
+      console.warn(`[API /chat] Validation error: ${error.message}`);
+      return createErrorResponse(error.message);
+    }
+    
+    console.error('[API /chat] Unexpected error:', error);
     return createErrorResponse(
       'An unexpected error occurred. Please try again.',
       500

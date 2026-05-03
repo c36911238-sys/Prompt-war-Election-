@@ -45,38 +45,73 @@ const Timeline = React.memo(function Timeline() {
     }
   }, [handleTimelineItemClick]);
 
+  const getPhaseStatus = (phase) => {
+    if (activePhase > phase.id) return 'completed';
+    if (activePhase === phase.id) return 'active';
+    return 'upcoming';
+  };
+
+  const getStatusLabel = (status) => {
+    switch (status) {
+      case 'completed': return 'Completed';
+      case 'active': return 'Current Phase';
+      case 'upcoming': return 'Upcoming';
+      default: return '';
+    }
+  };
+
   return (
     <article className="glass-panel animate-fade-in delay-100" aria-label="Election Timeline">
-      <h2 className="text-gradient" style={{ fontSize: '1.5rem', marginBottom: '1.5rem' }}>
-        Election Timeline
-      </h2>
+      <div className="flex items-center justify-between" style={{ marginBottom: '2rem' }}>
+        <h2 className="text-gradient section-title">
+          Election Timeline
+        </h2>
+        <div className="timeline-progress">
+          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Phase {activePhase} of {phases.length}
+          </span>
+        </div>
+      </div>
 
       <div className="timeline-container" role="list">
-        {phases.map((phase) => (
-          <div
-            key={phase.id}
-            className={`timeline-item ${activePhase === phase.id ? 'active' : ''} ${activePhase > phase.id ? 'completed' : ''}`}
-            onClick={handleTimelineItemClick}
-            onKeyDown={handleTimelineItemKeyDown}
-            role="listitem"
-            tabIndex={0}
-            aria-current={activePhase === phase.id ? 'step' : undefined}
-            aria-label={`Phase ${phase.id}: ${phase.title}`}
-            data-testid={`timeline-phase-${phase.id}`}
-            data-phaseid={phase.id}
-          >
-            <div className="timeline-line" aria-hidden="true" />
-            <div className="timeline-marker" aria-hidden="true">
-              <span className="material-symbols-outlined">{phase.icon}</span>
+        {phases.map((phase) => {
+          const status = getPhaseStatus(phase);
+          return (
+            <div
+              key={phase.id}
+              className={`timeline-item ${status}`}
+              onClick={handleTimelineItemClick}
+              onKeyDown={handleTimelineItemKeyDown}
+              role="listitem"
+              tabIndex={0}
+              aria-current={activePhase === phase.id ? 'step' : undefined}
+              aria-label={`Phase ${phase.id}: ${phase.title}`}
+              data-testid={`timeline-phase-${phase.id}`}
+              data-phaseid={phase.id}
+            >
+              <div className="timeline-line" aria-hidden="true" />
+              <div className="timeline-marker" aria-hidden="true">
+                <span className="material-symbols-outlined">
+                  {status === 'completed' ? 'check' : phase.icon || 'radio_button_unchecked'}
+                </span>
+              </div>
+              <div className="timeline-content">
+                <div className="timeline-date">Phase {phase.id}</div>
+                <h3>{phase.title}</h3>
+                {activePhase === phase.id && (
+                  <p className="animate-fade-in">{phase.description}</p>
+                )}
+                <div className={`timeline-status ${status}`}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>
+                    {status === 'completed' ? 'check_circle' : 
+                     status === 'active' ? 'play_circle' : 'schedule'}
+                  </span>
+                  {getStatusLabel(status)}
+                </div>
+              </div>
             </div>
-            <div className="timeline-content">
-              <h3>{phase.title}</h3>
-              {activePhase === phase.id && (
-                <p className="animate-fade-in">{phase.description}</p>
-              )}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </article>
   );

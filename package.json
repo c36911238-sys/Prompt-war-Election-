@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start -p $PORT",
+    "start": "next start",
     "lint": "eslint . --ext .js,.jsx --fix",
     "lint:check": "eslint . --ext .js,.jsx",
     "format": "prettier --write \"**/*.{js,jsx,json,md,css}\"",
@@ -20,8 +20,8 @@
     "analyze": "ANALYZE=true npm run build",
     "type-check": "tsc --noEmit",
     "quality": "npm run lint:check && npm run format:check && npm run test:coverage",
-    "railway:build": "npm run build",
-    "railway:start": "npm start"
+    "deploy": "vercel --prod",
+    "preview": "vercel"
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.4.1",

@@ -4,14 +4,8 @@ const nextConfig = {
   compress: true,
   poweredByHeader: false,
   
-  // Railway-specific optimizations
+  // Vercel-optimized output
   output: 'standalone',
-  
-  // Environment variables (string values only)
-  env: {
-    PORT: process.env.PORT || "3000",
-    NODE_ENV: process.env.NODE_ENV || "development",
-  },
 
   // Experimental features for better performance
   experimental: {
@@ -24,6 +18,9 @@ const nextConfig = {
       'dompurify'
     ],
   },
+
+  // Turbopack configuration (empty to silence warning)
+  turbopack: {},
 
   // Image optimization
   images: {

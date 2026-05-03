@@ -280,30 +280,26 @@ export async function POST(request) {
       }
     );
 
-  } catch (validationError) {
-    if (validationError.message.includes('required') || 
-        validationError.message.includes('Invalid') ||
-        validationError.message.includes('too long')) {
-      return createTtsErrorResponse(validationError.message);
+  } catch (error) {
+    // Handle validation errors
+    if (error.message && (
+      error.message.includes('required') || 
+      error.message.includes('Invalid') ||
+      error.message.includes('too long')
+    )) {
+      return createTtsErrorResponse(error.message);
     }
     
     // TTS service errors
     console.error('[TTS] Service error:', {
-      message: validationError.message,
-      code: validationError.code,
+      message: error.message,
+      code: error.code,
       ip: getClientIp(request),
     });
     
     return createTtsErrorResponse(
       'Text-to-speech service is temporarily unavailable. Please try again.',
       503
-    );
-    
-  } catch (unexpectedError) {
-    console.error('[TTS] Unexpected error:', unexpectedError);
-    return createTtsErrorResponse(
-      'An unexpected error occurred. Please try again.',
-      500
     );
   }
 }
