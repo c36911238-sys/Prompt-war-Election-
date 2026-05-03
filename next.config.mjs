@@ -1,62 +1,175 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Gzip compression for all responses
+  // Performance optimizations
   compress: true,
-
+  poweredByHeader: false,
+  
   // Railway-specific optimizations
   output: 'standalone',
   
-  // Use Railway's PORT environment variable
+  // Environment variables (string values only)
   env: {
     PORT: process.env.PORT || "3000",
+    NODE_ENV: process.env.NODE_ENV || "development",
   },
 
-  // Optimise images: serve AVIF/WebP automatically
+  // Experimental features for better performance
+  experimental: {
+    optimizeCss: true,
+    optimizePackageImports: [
+      '@google-cloud/text-to-speech',
+      '@google-cloud/translate', 
+      '@google-cloud/vertexai',
+      'firebase',
+      'dompurify'
+    ],
+  },
+
+  // Image optimization
   images: {
     formats: ['image/avif', 'image/webp'],
-    // Allow Next.js <Image /> to serve Google OAuth user avatars.
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
+    minimumCacheTTL: 60,
+    dangerouslyAllowSVG: false,
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
     remotePatterns: [
       {
         protocol: 'https',
-        hostname:  'lh3.googleusercontent.com',
-        pathname:  '/**',
+        hostname: 'lh3.googleusercontent.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.googleapis.com',
+        pathname: '/**',
       },
     ],
   },
 
+  // Webpack optimizations
+  webpack: (config, { dev, isServer }) => {
+    // Production optimizations
+    if (!dev && !isServer) {
+      config.optimization.splitChunks = {
+        chunks: 'all',
+        cacheGroups: {
+          vendor: {
+            test: /[\\/]node_modules[\\/]/,
+            name: 'vendors',
+            chunks: 'all',
+          },
+          firebase: {
+            test: /[\\/]node_modules[\\/](firebase|@firebase)[\\/]/,
+            name: 'firebase',
+            chunks: 'all',
+          },
+          google: {
+            test: /[\\/]node_modules[\\/]@google-cloud[\\/]/,
+            name: 'google-cloud',
+            chunks: 'all',
+          },
+        },
+      };
+    }
+
+    // Bundle analyzer (only in development)
+    if (dev && process.env.ANALYZE === 'true') {
+      const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
+      config.plugins.push(
+        new BundleAnalyzerPlugin({
+          analyzerMode: 'server',
+          openAnalyzer: true,
+        })
+      );
+    }
+
+    return config;
+  },
+
+  // Security headers
   async headers() {
     return [
       {
         source: '/(.*)',
         headers: [
-          // Security
-          { key: 'X-Content-Type-Options',   value: 'nosniff' },
-          { key: 'X-Frame-Options',           value: 'DENY' },
-          { key: 'X-XSS-Protection',          value: '1; mode=block' },
-          { key: 'Referrer-Policy',           value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy',        value: 'camera=(), microphone=(), geolocation=()' },
-
+          // Security headers
+          { 
+            key: 'X-Content-Type-Options', 
+            value: 'nosniff' 
+          },
+          { 
+            key: 'X-Frame-Options', 
+            value: 'DENY' 
+          },
+          { 
+            key: 'X-XSS-Protection', 
+            value: '1; mode=block' 
+          },
+          { 
+            key: 'Referrer-Policy', 
+            value: 'strict-origin-when-cross-origin' 
+          },
+          { 
+            key: 'Permissions-Policy', 
+            value: 'camera=(), microphone=(), geolocation=(), payment=()' 
+          },
+          
           // Content Security Policy
-          // Allows Firebase, Google APIs, Fonts, and our own origin.
           {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              // Scripts: self + Google/Firebase SDKs (needed for Firebase Auth popup & Analytics)
               "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://*.firebaseapp.com https://*.googleapis.com",
-              // Styles: self + Google Fonts
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-              // Fonts
               "font-src 'self' https://fonts.gstatic.com",
-              // Images: self + Firebase storage + Google user photos
               "img-src 'self' data: https://*.googleusercontent.com https://*.googleapis.com",
-              // Connections: Firebase, Google APIs, our own API routes
               "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.google.com wss://*.firebaseio.com",
-              // Frames: Google Auth popup
               "frame-src https://accounts.google.com https://*.firebaseapp.com",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+              "frame-ancestors 'none'",
             ].join('; '),
           },
+          
+          // Performance headers
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
         ],
+      },
+      // API routes get different cache headers
+      {
+        source: '/api/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          },
+        ],
+      },
+    ];
+  },
+
+  // Redirects for better SEO
+  async redirects() {
+    return [
+      {
+        source: '/home',
+        destination: '/',
+        permanent: true,
+      },
+    ];
+  },
+
+  // Rewrites for clean URLs
+  async rewrites() {
+    return [
+      {
+        source: '/health',
+        destination: '/api/health',
       },
     ];
   },
