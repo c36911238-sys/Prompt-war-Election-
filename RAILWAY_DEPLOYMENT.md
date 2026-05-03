@@ -56,10 +56,18 @@ NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
 ### 3. Deploy
 
 Railway automatically:
-- Detects Next.js configuration
-- Installs dependencies with `npm ci`
+- Uses Docker to build the application
+- Installs dependencies with `npm ci --only=production`
 - Builds the application with `npm run build`
 - Starts the server with `npm start`
+
+## 🔧 Build System Change
+
+**Important**: This project has been updated from Nixpacks to Dockerfile for better build reliability. The Dockerfile approach:
+- Provides more consistent builds
+- Avoids GitHub download issues that can occur with Nixpacks
+- Uses standard Node.js Alpine image for smaller container size
+- Includes proper production optimizations
 
 ## 🔧 Railway Configuration Files
 
@@ -68,7 +76,7 @@ The project includes Railway-optimized configuration:
 ### `railway.toml`
 ```toml
 [build]
-builder = "NIXPACKS"
+builder = "DOCKERFILE"
 
 [deploy]
 numReplicas = 1
@@ -76,19 +84,34 @@ sleepApplication = false
 restartPolicyType = "ON_FAILURE"
 ```
 
-### `nixpacks.toml`
-```toml
-[phases.setup]
-nixPkgs = ["nodejs-18_x", "npm-9_x"]
+### `Dockerfile`
+```dockerfile
+# Use the official Node.js 18 image
+FROM node:18-alpine
 
-[phases.install]
-cmds = ["npm ci"]
+# Set working directory
+WORKDIR /app
 
-[phases.build]
-cmds = ["npm run build"]
+# Copy package files
+COPY package*.json ./
 
-[start]
-cmd = "npm start"
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Expose port
+EXPOSE 3000
+
+# Set environment variable for port
+ENV PORT=3000
+
+# Start the application
+CMD ["npm", "start"]
 ```
 
 ## 🌐 Custom Domain (Optional)
