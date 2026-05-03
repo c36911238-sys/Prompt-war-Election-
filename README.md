@@ -11,9 +11,9 @@
 
 ## 🖥️ Live Preview
 
-![Election Process Assistant — AI-powered multilingual election guidance](public/demo-screenshot.png)
+![Prompt-war-Election- — AI-powered multilingual election guidance](public/demo-screenshot.png)
 
-> **[Try it live →](https://election-process-xi.vercel.app)**
+> **[Try it live →](https://prompt-war-election.up.railway.app)**
 
 ---
 
@@ -219,18 +219,50 @@ npm test
 
 ## ☁️ Deployment
 
-### Vercel (Recommended)
+### Railway (Recommended)
 
-1. Import the repository on [vercel.com](https://vercel.com)
-2. Add all environment variables from `.env.local.example`
-3. For `GOOGLE_CREDENTIALS_JSON`, paste the **raw JSON content** of your service account key
-4. Deploy!
+Railway provides seamless deployment for Next.js applications with automatic builds and environment management.
 
-### Railway
+#### Quick Deploy to Railway
 
-1. Create a new Railway project from this repository
-2. Set environment variables in the Railway dashboard
-3. Railway automatically detects Next.js — no configuration needed
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/your-template-id)
+
+#### Manual Railway Deployment
+
+1. **Create Railway Account**: Sign up at [railway.app](https://railway.app)
+
+2. **Deploy from GitHub**:
+   - Click "New Project" → "Deploy from GitHub repo"
+   - Select `c36911238-sys/Prompt-war-Election-`
+   - Railway auto-detects Next.js configuration
+
+3. **Configure Environment Variables**:
+   Add these variables in Railway dashboard → Settings → Environment:
+   
+   ```bash
+   # Google Cloud Configuration
+   GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+   GOOGLE_CREDENTIALS_JSON={"type":"service_account",...}
+   
+   # Firebase Configuration
+   NEXT_PUBLIC_FIREBASE_API_KEY=your-api-key
+   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+   NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
+   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=123456789
+   NEXT_PUBLIC_FIREBASE_APP_ID=1:123456789:web:abcdef
+   NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
+   ```
+
+4. **Deploy**: Railway automatically builds and deploys your application
+
+#### Railway Features Used
+- **Automatic HTTPS**: SSL certificates managed automatically
+- **Custom Domains**: Connect your own domain easily
+- **Environment Management**: Secure variable storage
+- **Auto-scaling**: Handles traffic spikes automatically
+- **Build Optimization**: Optimized Next.js builds
+- **Zero Configuration**: No deployment config needed
 
 ---
 
