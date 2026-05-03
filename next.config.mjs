@@ -8,7 +8,7 @@ const nextConfig = {
   
   // Use Railway's PORT environment variable
   env: {
-    PORT: process.env.PORT || 3000,
+    PORT: process.env.PORT || "3000",
   },
 
   // Optimise images: serve AVIF/WebP automatically
