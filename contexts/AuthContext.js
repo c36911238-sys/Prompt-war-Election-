@@ -35,13 +35,17 @@ export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Subscribe to Firebase auth state changes.
+  // Subscribe to Firebase auth state changes (browser only).
   useEffect(() => {
+    if (!auth) {
+      setLoading(false);
+      return;
+    }
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setLoading(false);
     });
-    return unsubscribe; // Cleans up listener on unmount.
+    return unsubscribe;
   }, []);
 
   const signInWithGoogle = useCallback(async () => {

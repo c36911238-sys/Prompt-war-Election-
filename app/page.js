@@ -1,26 +1,10 @@
-import dynamic from 'next/dynamic';
 import { Suspense } from 'react';
 import Timeline from '@/components/Timeline';
 import TimelineSkeleton from '@/components/TimelineSkeleton';
 import AuthButton from '@/components/AuthButton';
-
-/**
- * Lazy-load ChatAssistant — it's a heavy client component (DOMPurify + Firebase).
- * Loading it asynchronously keeps Time-to-Interactive fast for the Timeline.
- */
-const ChatAssistant = dynamic(() => import('@/components/ChatAssistant'), {
-  ssr:     false,
-  loading: () => (
-    <div
-      className="glass-panel animate-fade-in"
-      style={{ height: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}
-      aria-label="Loading chat assistant"
-      aria-busy="true"
-    >
-      <span className="material-symbols-outlined" style={{ fontSize: '2rem', opacity: 0.4 }}>robot_2</span>
-    </div>
-  ),
-});
+// ChatAssistantLoader is a Client Component that wraps dynamic(ssr:false) —
+// the only valid pattern in the App Router for SSR-disabled lazy loading.
+import ChatAssistantLoader from '@/components/ChatAssistantLoader';
 
 export default function Home() {
   return (
@@ -47,9 +31,9 @@ export default function Home() {
           </Suspense>
         </section>
 
-        {/* Right column — Chat Assistant (lazy loaded, non-blocking) */}
+        {/* Right column — Chat Assistant (lazy loaded via ChatAssistantLoader) */}
         <section>
-          <ChatAssistant />
+          <ChatAssistantLoader />
         </section>
       </main>
     </div>

@@ -1,5 +1,3 @@
-import { AuthProvider } from '@/contexts/AuthContext';
-import { trackPageView } from '@/lib/analytics';
 import './globals.css';
 
 export const metadata = {
@@ -10,9 +8,11 @@ export const metadata = {
 };
 
 /**
- * Root layout — wraps the entire app with:
- *  • Firebase AuthProvider (auth state available everywhere)
- *  • Google Analytics page-view tracking
+ * Root layout — wraps the entire app.
+ *
+ * AuthProvider is intentionally imported inside the Client Component
+ * boundary (it has 'use client') so Firebase SDK never initialises on
+ * the server during static page generation.
  */
 export default function RootLayout({ children }) {
   return (
@@ -22,24 +22,22 @@ export default function RootLayout({ children }) {
         <meta name="theme-color" content="#0f172a" />
       </head>
       <body>
-        <AuthProvider>
+        {/*
+          AuthProvider is a 'use client' component — Next.js will only
+          execute its module (and thus firebase.js) in the browser,
+          never during SSR/static generation.
+        */}
+        <AuthProviderWrapper>
           {children}
-        </AuthProvider>
-
-        {/* Firebase Analytics page-view — client-side only script */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (async () => {
-                try {
-                  const { trackPageView } = await import('/lib/analytics.js');
-                  trackPageView(window.location.pathname);
-                } catch {}
-              })();
-            `,
-          }}
-        />
+        </AuthProviderWrapper>
       </body>
     </html>
   );
 }
+
+/**
+ * Thin server-side shell that imports the client AuthProvider.
+ * By keeping this import at the leaf of the server tree, Firebase
+ * initialisation is deferred entirely to the browser.
+ */
+import AuthProviderWrapper from '@/components/AuthProviderWrapper';
