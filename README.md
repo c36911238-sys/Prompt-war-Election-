@@ -11,7 +11,7 @@
 
 ## 🖥️ Live Preview
 
-<!-- Add demo.gif or demo-screenshot.png to /public and update the path below before final submission -->
+![Election Process Assistant — AI-powered multilingual election guidance](public/demo-screenshot.png)
 
 > **[Try it live →](https://election-process-xi.vercel.app)**
 
