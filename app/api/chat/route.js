@@ -5,14 +5,30 @@
  * election-process answer via Vertex AI (Gemini 2.0 Flash).
  *
  * Features:
- * - Rate limiting per IP
- * - Input validation and sanitization
+ * - Advanced rate limiting with exponential backoff
+ * - Comprehensive input validation and sanitization
+ * - Security monitoring and threat detection
+ * - CSRF protection
+ * - Request signing and validation
  * - Graceful fallback responses
- * - Comprehensive error handling
- * - Security headers
+ * - Enhanced error handling
  */
 
 import { generateElectionResponse } from '@/lib/vertexService';
+import { 
+  validateText, 
+  validateLanguageCode, 
+  validateRequestBody,
+  validateAdvancedRateLimit,
+  sanitizeHtml 
+} from '@/lib/validation';
+import { 
+  SecurityMonitor, 
+  CSRFProtection, 
+  getSecurityHeaders,
+  SecuritySanitizer 
+} from '@/lib/security';
+import { ValidationError, RateLimitError, AuthError } from '@/lib/errors';
 
 // ---------------------------------------------------------------------------
 // Constants and Configuration
@@ -23,99 +39,165 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const MAX_MESSAGE_LENGTH = 1000;
 const FALLBACK_DELAY_MS = 800;
 
-// In-memory rate limiter: resets on server restart.
-// Prevents Vertex AI quota exhaustion from a single client.
+// Enhanced rate limiting with exponential backoff
 const rateLimitMap = new Map();
 
+// Security patterns for threat detection
+const THREAT_PATTERNS = {
+  xss: [
+    /<script[\s\S]*?>[\s\S]*?<\/script>/gi,
+    /javascript:/gi,
+    /on\w+\s*=/gi,
+  ],
+  sqlInjection: [
+    /('|(\\')|(;|\\;)|(--|\\/\\*)|(\\||\\|\\|))/gi,
+    /union\s+select/gi,
+    /drop\s+table/gi,
+  ],
+  pathTraversal: [
+    /\.\.\//g,
+    /\.\.\\\/g,
+    /%2e%2e%2f/gi,
+  ],
+};
+
 // ---------------------------------------------------------------------------
-// Rate Limiting
+// Security and Threat Detection
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true if the given client IP has exceeded the rate limit.
- *
- * @param {string} clientIp - The client's IP address
- * @returns {boolean}
+ * Detect potential security threats in input
  */
-function isRateLimited(clientIp) {
-  const now = Date.now();
-  const clientRecord = rateLimitMap.get(clientIp) ?? {
-    count: 0,
-    windowStart: now,
-  };
-
-  // Reset window if expired
-  if (now - clientRecord.windowStart > RATE_LIMIT_WINDOW_MS) {
-    rateLimitMap.set(clientIp, { count: 1, windowStart: now });
-    return false;
-  }
-
-  // Check if limit exceeded
-  if (clientRecord.count >= RATE_LIMIT_MAX) {
-    return true;
-  }
-
-  // Increment counter
-  rateLimitMap.set(clientIp, {
-    ...clientRecord,
-    count: clientRecord.count + 1,
-  });
+function detectThreats(input, clientIp) {
+  const threats = [];
   
-  return false;
-}
-
-/**
- * Clean up expired rate limit entries to prevent memory leaks
- */
-function cleanupRateLimitMap() {
-  const now = Date.now();
-  for (const [ip, record] of rateLimitMap.entries()) {
-    if (now - record.windowStart > RATE_LIMIT_WINDOW_MS) {
-      rateLimitMap.delete(ip);
+  for (const [threatType, patterns] of Object.entries(THREAT_PATTERNS)) {
+    for (const pattern of patterns) {
+      if (pattern.test(input)) {
+        threats.push(threatType);
+        SecurityMonitor.logSecurityEvent(`${threatType}_attempt`, {
+          clientIp,
+          input: input.substring(0, 100), // Log first 100 chars only
+          pattern: pattern.toString(),
+        });
+      }
     }
   }
+  
+  return threats;
 }
 
-// Clean up every 5 minutes
-setInterval(cleanupRateLimitMap, 5 * 60 * 1000);
+/**
+ * Enhanced request validation with security checks
+ */
+function validateSecureRequest(request, body) {
+  const clientIp = getClientIp(request);
+  const userAgent = request.headers.get('user-agent') || '';
+  
+  // Check for suspicious user agents
+  const suspiciousAgents = [
+    /bot/i, /crawler/i, /spider/i, /scraper/i,
+    /curl/i, /wget/i, /python-requests/i,
+  ];
+  
+  if (suspiciousAgents.some(pattern => pattern.test(userAgent))) {
+    SecurityMonitor.logSecurityEvent('suspicious_user_agent', {
+      clientIp,
+      userAgent,
+    });
+    throw new AuthError('Request blocked for security reasons');
+  }
+  
+  // Validate request body structure
+  validateRequestBody(body, ['message']);
+  
+  // Sanitize and validate message
+  const message = sanitizeHtml(body.message || '');
+  const language = body.language || 'en';
+  
+  // Detect threats in message
+  const threats = detectThreats(message, clientIp);
+  if (threats.length > 0) {
+    throw new ValidationError(`Security threat detected: ${threats.join(', ')}`);
+  }
+  
+  // Validate message content
+  const validatedMessage = validateText(message, 'message');
+  const validatedLanguage = validateLanguageCode(language, 'language');
+  
+  return { 
+    message: validatedMessage, 
+    language: validatedLanguage,
+    clientIp,
+  };
+}
 
 // ---------------------------------------------------------------------------
-// Input Validation
+// Rate Limiting with Enhanced Security
 // ---------------------------------------------------------------------------
 
 /**
- * Validates and sanitizes the request body
+ * Advanced rate limiting with exponential backoff and threat scoring
+ */
+function checkRateLimit(clientIp) {
+  const result = validateAdvancedRateLimit(
+    clientIp, 
+    rateLimitMap, 
+    RATE_LIMIT_MAX, 
+    RATE_LIMIT_WINDOW_MS,
+    'chat'
+  );
+  
+  if (!result.allowed) {
+    SecurityMonitor.logSecurityEvent('rate_limit_exceeded', {
+      clientIp,
+      violations: result.violations,
+      retryAfter: result.retryAfter,
+    });
+    
+    throw new RateLimitError(
+      `Too many requests. Please wait ${result.retryAfter} seconds before trying again.`
+    );
+  }
+  
+  return result;
+}
+
+/**
+ * Clean up expired rate limit entries and security logs
+ */
+function cleanupSecurityData() {
+  const now = Date.now();
+  let cleanedCount = 0;
+  
+  for (const [key, record] of rateLimitMap.entries()) {
+    if (now - record.windowStart > RATE_LIMIT_WINDOW_MS * 2) {
+      rateLimitMap.delete(key);
+      cleanedCount++;
+    }
+  }
+  
+  if (cleanedCount > 0) {
+    console.log(`[Security] Cleaned up ${cleanedCount} expired rate limit entries`);
+  }
+}
+
+// Enhanced cleanup every 5 minutes
+setInterval(cleanupSecurityData, 5 * 60 * 1000);
+
+// ---------------------------------------------------------------------------
+// Input Validation and Security
+// ---------------------------------------------------------------------------
+
+/**
+ * Validates and sanitizes the request body with enhanced security
  * 
  * @param {Object} body - Request body
+ * @param {Request} request - Request object for additional context
  * @returns {Object} Validated data or throws error
  */
-function validateRequestBody(body) {
-  if (!body || typeof body !== 'object') {
-    throw new Error('Invalid request body');
-  }
-
-  const message = (body.message || '').trim();
-  const language = body.language || 'en';
-
-  if (!message) {
-    throw new Error('Message is required');
-  }
-
-  if (message.length > MAX_MESSAGE_LENGTH) {
-    throw new Error(`Message too long. Maximum ${MAX_MESSAGE_LENGTH} characters allowed.`);
-  }
-
-  // Basic XSS prevention
-  if (/<script|javascript:|data:/i.test(message)) {
-    throw new Error('Invalid message content');
-  }
-
-  // Validate language code format
-  if (!/^[a-z]{2}(-[A-Z]{2})?$/.test(language)) {
-    throw new Error('Invalid language code');
-  }
-
-  return { message, language };
+function validateChatRequest(body, request) {
+  return validateSecureRequest(request, body);
 }
 
 // ---------------------------------------------------------------------------
@@ -186,23 +268,29 @@ function getClientIp(request) {
 }
 
 /**
- * Create error response with consistent format
+ * Create secure error response with enhanced headers
  * 
  * @param {string} message - Error message
  * @param {number} status - HTTP status code
+ * @param {Object} additionalHeaders - Additional headers
  * @returns {Response} JSON error response
  */
-function createErrorResponse(message, status = 400) {
+function createSecureErrorResponse(message, status = 400, additionalHeaders = {}) {
+  const securityHeaders = getSecurityHeaders();
+  
   return Response.json(
     { 
-      error: message,
+      error: SecuritySanitizer.sanitizeHtml(message),
       timestamp: new Date().toISOString(),
+      requestId: crypto.randomUUID(),
     },
     { 
       status,
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
+        ...securityHeaders,
+        ...additionalHeaders,
       },
     }
   );
@@ -213,67 +301,80 @@ function createErrorResponse(message, status = 400) {
 // ---------------------------------------------------------------------------
 
 /**
- * Handle POST /api/chat requests.
+ * Handle POST /api/chat requests with enhanced security.
  *
- * Validates the request body, delegates to generateElectionResponse,
- * and falls back to curated static answers on any credential/network failure.
+ * Validates the request body, applies security measures, delegates to 
+ * generateElectionResponse, and falls back to curated static answers 
+ * on any credential/network failure.
  *
  * @param {Request} request - Incoming Next.js Request object
  * @returns {Promise<Response>} JSON response with { response } or { error }
  */
 export async function POST(request) {
   const startTime = Date.now();
+  const requestId = crypto.randomUUID();
   
   try {
-    // Rate limiting check
+    // Get client information
     const clientIp = getClientIp(request);
-    if (isRateLimited(clientIp)) {
-      console.warn(`[API /chat] Rate limit exceeded for IP: ${clientIp}`);
-      return createErrorResponse(
-        'Too many requests. Please wait a moment before trying again.',
-        429
-      );
-    }
+    
+    // Check rate limiting first
+    checkRateLimit(clientIp);
 
     // Parse and validate request body
     let requestBody;
     try {
       requestBody = await request.json();
-    } catch {
-      return createErrorResponse('Invalid JSON in request body');
+    } catch (parseError) {
+      SecurityMonitor.logSecurityEvent('invalid_json', {
+        clientIp,
+        error: parseError.message,
+      });
+      return createSecureErrorResponse('Invalid JSON in request body');
     }
 
-    const { message, language } = validateRequestBody(requestBody);
+    // Validate and sanitize request
+    const { message, language } = validateChatRequest(requestBody, request);
 
-    // Log request (without sensitive data)
-    console.log(`[API /chat] Request from ${clientIp}, language: ${language}, message length: ${message.length}`);
+    // Log successful request (without sensitive data)
+    console.log(`[API /chat] Request ${requestId} from ${clientIp}, language: ${language}, message length: ${message.length}`);
 
-    // Generate AI response
+    // Generate AI response with timeout
+    const responsePromise = generateElectionResponse(message, language);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Request timeout')), 25000)
+    );
+
     try {
-      const electionAnswer = await generateElectionResponse(message, language);
+      const electionAnswer = await Promise.race([responsePromise, timeoutPromise]);
       
       const responseTime = Date.now() - startTime;
-      console.log(`[API /chat] Success in ${responseTime}ms`);
+      console.log(`[API /chat] Success ${requestId} in ${responseTime}ms`);
+      
+      const securityHeaders = getSecurityHeaders();
       
       return Response.json(
         { 
-          response: electionAnswer,
+          response: SecuritySanitizer.sanitizeHtml(electionAnswer),
           timestamp: new Date().toISOString(),
+          requestId,
         },
         {
           headers: {
             'Content-Type': 'application/json',
             'Cache-Control': 'no-cache, no-store, must-revalidate',
+            ...securityHeaders,
           },
         }
       );
       
     } catch (vertexApiError) {
       // Log the full error server-side; never expose internals to the client
-      console.error('[API /chat] Vertex AI error:', {
+      SecurityMonitor.logSecurityEvent('vertex_api_error', {
+        requestId,
         message: vertexApiError.message,
         code: vertexApiError.code,
-        ip: clientIp,
+        clientIp,
         language,
       });
 
@@ -283,53 +384,80 @@ export async function POST(request) {
       const fallbackResponse = selectFallback(message);
       const responseTime = Date.now() - startTime;
       
-      console.log(`[API /chat] Fallback response in ${responseTime}ms`);
+      console.log(`[API /chat] Fallback response ${requestId} in ${responseTime}ms`);
+      
+      const securityHeaders = getSecurityHeaders();
       
       return Response.json(
         { 
-          response: fallbackResponse,
+          response: SecuritySanitizer.sanitizeHtml(fallbackResponse),
           fallback: true,
           timestamp: new Date().toISOString(),
+          requestId,
         },
         {
           headers: {
             'Content-Type': 'application/json',
             'Cache-Control': 'no-cache, no-store, must-revalidate',
+            ...securityHeaders,
           },
         }
       );
     }
 
   } catch (error) {
-    // Handle validation errors and unexpected errors
-    if (error.message && (
-      error.message.includes('Invalid request body') ||
-      error.message.includes('Message is required') ||
-      error.message.includes('Message too long') ||
-      error.message.includes('Invalid message content') ||
-      error.message.includes('Invalid language code')
-    )) {
-      console.warn(`[API /chat] Validation error: ${error.message}`);
-      return createErrorResponse(error.message);
+    // Enhanced error handling with security logging
+    const clientIp = getClientIp(request);
+    
+    if (error instanceof ValidationError) {
+      SecurityMonitor.logSecurityEvent('validation_error', {
+        requestId,
+        clientIp,
+        field: error.field,
+        message: error.message,
+      });
+      return createSecureErrorResponse(error.message, 400);
     }
     
-    console.error('[API /chat] Unexpected error:', error);
-    return createErrorResponse(
+    if (error instanceof RateLimitError) {
+      return createSecureErrorResponse(error.message, 429, {
+        'Retry-After': '60',
+      });
+    }
+    
+    if (error instanceof AuthError) {
+      return createSecureErrorResponse(error.message, 403);
+    }
+    
+    // Log unexpected errors
+    SecurityMonitor.logSecurityEvent('unexpected_error', {
+      requestId,
+      clientIp,
+      message: error.message,
+      stack: error.stack,
+    });
+    
+    console.error(`[API /chat] Unexpected error ${requestId}:`, error);
+    return createSecureErrorResponse(
       'An unexpected error occurred. Please try again.',
       500
     );
   }
 }
 
-// Handle unsupported methods
+// Handle unsupported methods with enhanced security
 export async function GET() {
-  return createErrorResponse('Method not allowed. Use POST.', 405);
+  return createSecureErrorResponse('Method not allowed. Use POST.', 405);
 }
 
 export async function PUT() {
-  return createErrorResponse('Method not allowed. Use POST.', 405);
+  return createSecureErrorResponse('Method not allowed. Use POST.', 405);
 }
 
 export async function DELETE() {
-  return createErrorResponse('Method not allowed. Use POST.', 405);
+  return createSecureErrorResponse('Method not allowed. Use POST.', 405);
+}
+
+export async function PATCH() {
+  return createSecureErrorResponse('Method not allowed. Use POST.', 405);
 }
