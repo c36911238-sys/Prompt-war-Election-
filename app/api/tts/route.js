@@ -8,73 +8,36 @@
  *
  * Features:
  * - Input validation and sanitization
- * - Rate limiting
- * - Error handling with fallbacks
- * - Security measures
+ * - Centralized rate limiting with monitoring
+ * - Timeout handling for API calls
+ * - Consistent error handling and logging
+ * - Security measures and request correlation
  */
 
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
+import { LIMITS, HTTP_STATUS, ERROR_MESSAGES } from '@/lib/constants';
+import { 
+  getClientIp, 
+  generateRequestId, 
+  createErrorResponse, 
+  createSuccessResponse,
+  parseRequestBody,
+  withTimeout,
+  logRequest,
+  validateTextLength,
+  validateLanguageCode,
+  sanitizeTextInput,
+  validateHttpMethod,
+  createMethodNotAllowedResponse
+} from '@/lib/apiUtils';
+import { checkRateLimit, createRateLimitMessage } from '@/lib/rateLimiting';
 
 // ---------------------------------------------------------------------------
 // Constants and Configuration
 // ---------------------------------------------------------------------------
 
-const MAX_TEXT_LENGTH = 1000;
-const RATE_LIMIT_MAX = 20; // Higher limit for TTS
-const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-
-// Rate limiting for TTS requests
-const ttsRateLimitMap = new Map();
-
 /** Singleton TTS client with enhanced error handling */
 let ttsClient = null;
-
-// ---------------------------------------------------------------------------
-// Rate Limiting
-// ---------------------------------------------------------------------------
-
-/**
- * Check if client has exceeded TTS rate limit
- * 
- * @param {string} clientIp - Client IP address
- * @returns {boolean} True if rate limited
- */
-function isTtsRateLimited(clientIp) {
-  const now = Date.now();
-  const clientRecord = ttsRateLimitMap.get(clientIp) ?? {
-    count: 0,
-    windowStart: now,
-  };
-
-  // Reset window if expired
-  if (now - clientRecord.windowStart > RATE_LIMIT_WINDOW_MS) {
-    ttsRateLimitMap.set(clientIp, { count: 1, windowStart: now });
-    return false;
-  }
-
-  // Check if limit exceeded
-  if (clientRecord.count >= RATE_LIMIT_MAX) {
-    return true;
-  }
-
-  // Increment counter
-  ttsRateLimitMap.set(clientIp, {
-    ...clientRecord,
-    count: clientRecord.count + 1,
-  });
-  
-  return false;
-}
-
-// Clean up expired entries
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, record] of ttsRateLimitMap.entries()) {
-    if (now - record.windowStart > RATE_LIMIT_WINDOW_MS) {
-      ttsRateLimitMap.delete(ip);
-    }
-  }
-}, 5 * 60 * 1000);
 
 // ---------------------------------------------------------------------------
 // Client Management
@@ -94,7 +57,7 @@ function getTTSClient() {
     const hasProjectId = !!process.env.GOOGLE_CLOUD_PROJECT;
     
     if (!hasJsonString && !hasProjectId) {
-      throw new Error('Google Cloud credentials not configured');
+      throw new Error(ERROR_MESSAGES.SERVICE.CONFIGURATION_ERROR('Google Cloud TTS'));
     }
 
     const clientOptions = hasJsonString
@@ -108,8 +71,8 @@ function getTTSClient() {
     return ttsClient;
     
   } catch (error) {
-    console.error('[TTS] Client initialization failed:', error.message);
-    throw new Error('TTS service unavailable');
+    logRequest('TTS', 'ERROR', 'Client initialization failed', { error: error.message });
+    throw new Error(ERROR_MESSAGES.SERVICE.UNAVAILABLE('TTS'));
   }
 }
 
@@ -121,79 +84,29 @@ function getTTSClient() {
  * Validate and sanitize TTS request
  * 
  * @param {Object} body - Request body
- * @returns {Object} Validated data
+ * @returns {Object} Validated data { text: string, languageCode: string }
  * @throws {Error} If validation fails
  */
 function validateTtsRequest(body) {
   if (!body || typeof body !== 'object') {
-    throw new Error('Invalid request body');
+    throw new Error(ERROR_MESSAGES.SECURITY.INVALID_REQUEST);
   }
 
-  let text = (body.text || '').trim();
-  const languageCode = body.languageCode || 'en-US';
-
+  // Extract and validate text
+  let text = body.text;
   if (!text) {
-    throw new Error('Text is required');
+    throw new Error(ERROR_MESSAGES.VALIDATION.REQUIRED_FIELD('Text'));
   }
 
-  if (text.length > MAX_TEXT_LENGTH) {
-    throw new Error(`Text too long. Maximum ${MAX_TEXT_LENGTH} characters allowed.`);
-  }
+  // Sanitize and validate text length
+  text = sanitizeTextInput(text);
+  validateTextLength(text, LIMITS.TTS_TEXT_MAX, 1, 'Text');
 
-  // Remove HTML tags and sanitize
-  text = text.replace(/<[^>]*>/g, '');
-  
-  // Remove potentially harmful content
-  text = text.replace(/[<>\"'&]/g, '');
-  
-  // Validate language code format
-  if (!/^[a-z]{2}(-[A-Z]{2})?$/.test(languageCode)) {
-    throw new Error('Invalid language code format');
-  }
+  // Extract and validate language code
+  const languageCode = body.languageCode || 'en-US';
+  validateLanguageCode(languageCode);
 
   return { text, languageCode };
-}
-
-// ---------------------------------------------------------------------------
-// Utility Functions
-// ---------------------------------------------------------------------------
-
-/**
- * Get client IP from request headers
- * 
- * @param {Request} request - Request object
- * @returns {string} Client IP
- */
-function getClientIp(request) {
-  return (
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    request.headers.get('x-real-ip') ||
-    request.headers.get('cf-connecting-ip') ||
-    'unknown'
-  );
-}
-
-/**
- * Create standardized error response
- * 
- * @param {string} message - Error message
- * @param {number} status - HTTP status code
- * @returns {Response} JSON error response
- */
-function createTtsErrorResponse(message, status = 400) {
-  return Response.json(
-    { 
-      error: message,
-      timestamp: new Date().toISOString(),
-    },
-    { 
-      status,
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-      },
-    }
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -210,37 +123,48 @@ function createTtsErrorResponse(message, status = 400) {
  * @returns {Promise<Response>} JSON response with { audioContent } or { error }
  */
 export async function POST(request) {
+  const requestId = generateRequestId();
   const startTime = Date.now();
   
   try {
-    // Rate limiting check
+    // Get client IP for rate limiting and logging
     const clientIp = getClientIp(request);
-    if (isTtsRateLimited(clientIp)) {
-      console.warn(`[TTS] Rate limit exceeded for IP: ${clientIp}`);
-      return createTtsErrorResponse(
-        'Too many TTS requests. Please wait before trying again.',
-        429
+    
+    // Check rate limiting
+    const rateLimitResult = checkRateLimit('tts', clientIp);
+    if (!rateLimitResult.allowed) {
+      const message = createRateLimitMessage('tts', rateLimitResult.retryAfter);
+      logRequest('TTS', 'WARN', 'Rate limit exceeded', { 
+        requestId, 
+        clientIp, 
+        retryAfter: rateLimitResult.retryAfter 
+      });
+      
+      return createErrorResponse(
+        message,
+        HTTP_STATUS.TOO_MANY_REQUESTS,
+        { 'Retry-After': rateLimitResult.retryAfter?.toString() },
+        requestId
       );
     }
 
     // Parse and validate request
-    let requestBody;
-    try {
-      requestBody = await request.json();
-    } catch {
-      return createTtsErrorResponse('Invalid JSON in request body');
-    }
-
+    const requestBody = await parseRequestBody(request);
     const { text, languageCode } = validateTtsRequest(requestBody);
 
     // Log request
-    console.log(`[TTS] Request from ${clientIp}, language: ${languageCode}, text length: ${text.length}`);
+    logRequest('TTS', 'INFO', 'Processing TTS request', {
+      requestId,
+      clientIp,
+      languageCode,
+      textLength: text.length,
+    });
 
     // Get TTS client
     const ttsClientInstance = getTTSClient();
 
-    // Synthesize speech
-    const [ttsApiResponse] = await ttsClientInstance.synthesizeSpeech({
+    // Synthesize speech with timeout
+    const ttsPromise = ttsClientInstance.synthesizeSpeech({
       input: { text },
       voice: { 
         languageCode, 
@@ -255,6 +179,12 @@ export async function POST(request) {
       },
     });
 
+    const [ttsApiResponse] = await withTimeout(
+      ttsPromise, 
+      LIMITS.TTS_TIMEOUT_MS, 
+      'TTS API call'
+    );
+
     // Validate response
     if (!ttsApiResponse.audioContent) {
       throw new Error('No audio content received from TTS service');
@@ -264,55 +194,90 @@ export async function POST(request) {
     const audioBase64 = Buffer.from(ttsApiResponse.audioContent).toString('base64');
     
     const responseTime = Date.now() - startTime;
-    console.log(`[TTS] Success in ${responseTime}ms, audio size: ${audioBase64.length} chars`);
+    logRequest('TTS', 'INFO', 'TTS request completed successfully', {
+      requestId,
+      clientIp,
+      responseTime,
+      audioSize: audioBase64.length,
+    });
 
-    return Response.json(
+    return createSuccessResponse(
       { 
         audioContent: audioBase64,
-        timestamp: new Date().toISOString(),
         languageCode,
       },
       {
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'private, max-age=3600', // Cache for 1 hour
-        },
-      }
+        'Cache-Control': 'private, max-age=3600', // Cache for 1 hour
+      },
+      requestId
     );
 
   } catch (error) {
+    const responseTime = Date.now() - startTime;
+    
     // Handle validation errors
     if (error.message && (
       error.message.includes('required') || 
       error.message.includes('Invalid') ||
-      error.message.includes('too long')
+      error.message.includes('too long') ||
+      error.message.includes('format')
     )) {
-      return createTtsErrorResponse(error.message);
+      logRequest('TTS', 'WARN', 'Validation error', {
+        requestId,
+        clientIp: getClientIp(request),
+        error: error.message,
+        responseTime,
+      });
+      
+      return createErrorResponse(error.message, HTTP_STATUS.BAD_REQUEST, {}, requestId);
+    }
+    
+    // Handle timeout errors
+    if (error.message?.includes('timeout')) {
+      logRequest('TTS', 'ERROR', 'TTS timeout', {
+        requestId,
+        clientIp: getClientIp(request),
+        responseTime,
+      });
+      
+      return createErrorResponse(
+        ERROR_MESSAGES.SERVICE.TIMEOUT('TTS'),
+        HTTP_STATUS.SERVICE_UNAVAILABLE,
+        {},
+        requestId
+      );
     }
     
     // TTS service errors
-    console.error('[TTS] Service error:', {
-      message: error.message,
+    logRequest('TTS', 'ERROR', 'TTS service error', {
+      requestId,
+      clientIp: getClientIp(request),
+      error: error.message,
       code: error.code,
-      ip: getClientIp(request),
+      responseTime,
     });
     
-    return createTtsErrorResponse(
-      'Text-to-speech service is temporarily unavailable. Please try again.',
-      503
+    return createErrorResponse(
+      ERROR_MESSAGES.SERVICE.UNAVAILABLE('TTS'),
+      HTTP_STATUS.SERVICE_UNAVAILABLE,
+      {},
+      requestId
     );
   }
 }
 
 // Handle unsupported methods
-export async function GET() {
-  return createTtsErrorResponse('Method not allowed. Use POST.', 405);
+export async function GET(request) {
+  const requestId = generateRequestId();
+  return createMethodNotAllowedResponse(['POST'], requestId);
 }
 
-export async function PUT() {
-  return createTtsErrorResponse('Method not allowed. Use POST.', 405);
+export async function PUT(request) {
+  const requestId = generateRequestId();
+  return createMethodNotAllowedResponse(['POST'], requestId);
 }
 
-export async function DELETE() {
-  return createTtsErrorResponse('Method not allowed. Use POST.', 405);
+export async function DELETE(request) {
+  const requestId = generateRequestId();
+  return createMethodNotAllowedResponse(['POST'], requestId);
 }

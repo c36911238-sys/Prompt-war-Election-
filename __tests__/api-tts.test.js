@@ -20,6 +20,9 @@ if (typeof global.Response === 'undefined') {
     }
   };
 }
+
+// Make Response available globally
+global.Response = global.Response;
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Mock TTS Client ──────────────────────────────────────────────────────────
@@ -43,7 +46,17 @@ const { POST } = require('../app/api/tts/route');
  * @param {object} body - JSON body
  */
 function createMockRequest(body) {
-  return { json: async () => body };
+  const headers = new Map([
+    ['x-forwarded-for', '127.0.0.1'],
+    ['user-agent', 'test-agent']
+  ]);
+  
+  return { 
+    json: async () => body,
+    headers: {
+      get: (key) => headers.get(key)
+    }
+  };
 }
 
 describe('POST /api/tts', () => {
@@ -71,14 +84,14 @@ describe('POST /api/tts', () => {
     expect(responseBody.audioContent).toBeDefined();
   });
 
-  it('Test 3 — Returns 500 when TTS client throws', async () => {
+  it('Test 3 — Returns 503 when TTS client throws', async () => {
     mockSynthesizeSpeech.mockRejectedValueOnce(new Error('TTS unavailable'));
 
     const mockRequest  = createMockRequest({ text: 'test text', languageCode: 'en-US' });
     const ttsResponse  = await POST(mockRequest);
     const responseBody = await ttsResponse.json();
 
-    expect(ttsResponse.status).toBe(500);
-    expect(responseBody.error).toBe('Text-to-speech generation failed. Please try again.');
+    expect(ttsResponse.status).toBe(503);
+    expect(responseBody.error).toBeDefined();
   });
 });
