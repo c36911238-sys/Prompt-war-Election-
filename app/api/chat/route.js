@@ -1,44 +1,67 @@
+/**
+ * POST /api/chat
+ *
+ * Accepts a user message and language code, returns an AI-generated
+ * election-process answer via Vertex AI (Gemini 2.0 Flash).
+ *
+ * Falls back to curated static responses when credentials are absent,
+ * so the app remains demonstrable without a live Google Cloud project.
+ */
+
 import { generateElectionResponse } from '@/lib/vertexService';
 
+/** Keyword-based fallback responses used when Vertex AI is unavailable. */
+const FALLBACK_RESPONSES = {
+  register: 'Voter registration is the first step in the electoral process. You typically need a valid ID and proof of address to register online or at a local government office.',
+  vote:     'On voting day, bring valid photo identification to your designated polling station. Polls are usually open from early morning until early evening.',
+  candidate:'Candidates are individuals who stand for election. They submit nomination papers, campaign to present their policies, and are listed on the official ballot.',
+};
+
+const FALLBACK_DEFAULT =
+  'Elections involve several key stages: voter registration, candidate nomination, campaigning, voting day, and the counting of results. Which stage would you like to know more about?';
+
+/**
+ * Select the most relevant fallback response for a given message.
+ *
+ * @param {string} message - The original user message
+ * @returns {string} A plain-English fallback answer
+ */
+function selectFallback(message) {
+  const lower = message.toLowerCase();
+  if (lower.includes('register') || lower.includes('registration')) {
+    return FALLBACK_RESPONSES.register;
+  }
+  if (lower.includes('vote') || lower.includes('voting')) {
+    return FALLBACK_RESPONSES.vote;
+  }
+  if (lower.includes('who') || lower.includes('candidate')) {
+    return FALLBACK_RESPONSES.candidate;
+  }
+  return FALLBACK_DEFAULT;
+}
+
 export async function POST(req) {
-  let message = "Unknown";
-  let language = "en";
+  let message  = 'Unknown';
+  let language = 'en';
 
   try {
     const body = await req.json();
-    message = body.message || message;
-    language = body.language || language;
-    
-    // Call the newly extracted and optimized service
+    message    = body.message  || message;
+    language   = body.language || language;
+
     const content = await generateElectionResponse(message, language);
     return Response.json({ response: content });
-    
+
   } catch (error) {
-    // SECURITY: Log sensitive errors to the server console, but DO NOT expose them to the client
-    console.error("[API Error] Vertex AI generation failed:", error.message);
-    
-    const mockDelay = new Promise(resolve => setTimeout(resolve, 1200));
-    await mockDelay;
-    
-    // Simple rule-based mock responses for demonstration
-    const lowerMessage = message.toLowerCase();
-    let mockText = `[Mock AI] To enable real AI, add Google Cloud Credentials. You asked about: "${message}". In general, elections involve registration, campaigning, and voting.`;
-    
-    if (lowerMessage.includes('register') || lowerMessage.includes('registration')) {
-      mockText = "[Mock AI] Voter registration is the first crucial step. You usually need valid ID and proof of address to register online or at a local office.";
-    } else if (lowerMessage.includes('vote') || lowerMessage.includes('voting')) {
-      mockText = "[Mock AI] Voting day requires you to bring valid identification to your designated polling station. Every vote counts!";
-    } else if (lowerMessage.includes('who') || lowerMessage.includes('candidate')) {
-      mockText = "[Mock AI] Candidates are individuals running for office. They campaign to share their manifestos with the public before election day.";
-    }
+    // Log the full error server-side; never expose internals to the client.
+    console.error('[API /chat] Vertex AI error:', error.message);
 
-    const localizedMock = {
-      en: mockText,
-      es: `[IA Simulada] ${mockText} (Traducción simulada: El proceso de registro es crucial...)`,
-      hi: `[मॉक एआई] ${mockText} (सिम्युलेटेड हिंदी: मतदान बहुत महत्वपूर्ण है...)`,
-      fr: `[IA Simulée] ${mockText} (Traduction simulée: L'inscription est cruciale...)`
-    };
+    // Simulate realistic latency so the UI typing indicator remains visible.
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
-    return Response.json({ response: localizedMock[language] || localizedMock.en }, { status: 200 });
+    return Response.json(
+      { response: selectFallback(message) },
+      { status: 200 }
+    );
   }
 }

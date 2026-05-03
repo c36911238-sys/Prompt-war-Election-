@@ -26,6 +26,15 @@ const GoogleIcon = () => (
   </svg>
 );
 
+/** Maps Firebase Auth error codes to user-friendly messages. */
+const FIREBASE_ERROR_MESSAGES = {
+  'auth/invalid-credential':   'Invalid email or password.',
+  'auth/email-already-in-use': 'An account with this email already exists.',
+  'auth/weak-password':        'Password must be at least 6 characters.',
+  'auth/user-not-found':       'No account found with this email.',
+  'auth/wrong-password':       'Incorrect password. Please try again.',
+};
+
 /**
  * AuthModal — Email/Password + Google Sign-In modal.
  *
@@ -41,6 +50,11 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
   const [busy, setBusy]       = useState(false);
 
   const clearError = useCallback(() => setError(''), []);
+
+  const handleTabChange = useCallback((nextTab) => {
+    setTab(nextTab);
+    clearError();
+  }, [clearError]);
 
   const handleGoogleSignIn = useCallback(async () => {
     setBusy(true);
@@ -67,15 +81,7 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
       }
       onClose();
     } catch (err) {
-      // Firebase error codes are safe to expose.
-      const msg = err.code === 'auth/invalid-credential'
-        ? 'Invalid email or password.'
-        : err.code === 'auth/email-already-in-use'
-          ? 'An account with this email already exists.'
-          : err.code === 'auth/weak-password'
-            ? 'Password must be at least 6 characters.'
-            : 'Authentication failed. Please try again.';
-      setError(msg);
+      setError(FIREBASE_ERROR_MESSAGES[err.code] ?? 'Authentication failed. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -101,7 +107,6 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
           Sign in to save your conversation history.
         </p>
 
-        {/* Tab Switcher */}
         <div className="auth-tabs" role="tablist">
           {['login', 'signup'].map((t) => (
             <button
@@ -109,7 +114,7 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
               role="tab"
               aria-selected={tab === t}
               className={`auth-tab ${tab === t ? 'active' : ''}`}
-              onClick={() => { setTab(t); clearError(); }}
+              onClick={() => handleTabChange(t)}
             >
               {t === 'login' ? 'Sign In' : 'Sign Up'}
             </button>
