@@ -1,74 +1,63 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { bootstrapRemoteConfig, getElectionPhases } from '@/lib/remoteConfig';
+import { trackTimelinePhase } from '@/lib/analytics';
+import { ELECTION_PHASES } from '@/lib/constants';
 import './Timeline.css';
 
-const electionPhases = [
-  {
-    id: 1,
-    title: 'Voter Registration',
-    icon: 'how_to_reg',
-    description: 'Ensure you are registered to vote before the deadline. Check your eligibility and register online or in person.',
-  },
-  {
-    id: 2,
-    title: 'Candidate Nomination',
-    icon: 'person_add',
-    description: 'Candidates file their nomination papers, which are scrutinized. Final list of candidates is published.',
-  },
-  {
-    id: 3,
-    title: 'Campaigning',
-    icon: 'campaign',
-    description: 'Candidates hold rallies, debates, and advertise to present their manifestos to the public. Ends 48h before voting.',
-  },
-  {
-    id: 4,
-    title: 'Voting Day',
-    icon: 'how_to_vote',
-    description: 'Registered voters cast their ballots at designated polling stations. Remember to bring valid ID.',
-  },
-  {
-    id: 5,
-    title: 'Counting & Results',
-    icon: 'analytics',
-    description: 'Votes are counted securely. The candidate with the highest votes is declared the winner.',
-  }
-];
-
+/**
+ * Timeline — interactive election phase stepper.
+ *
+ * Phase data is loaded from Firebase Remote Config on mount,
+ * with a graceful fallback to static constants if RC is unavailable.
+ */
 const Timeline = React.memo(function Timeline() {
+  const [phases, setPhases]           = useState(ELECTION_PHASES);
   const [activePhase, setActivePhase] = useState(1);
 
-  const handlePhaseClick = useCallback((id) => {
-    setActivePhase(id);
+  // Hydrate election phases from Firebase Remote Config.
+  useEffect(() => {
+    let isMounted = true;
+    bootstrapRemoteConfig().then(() => {
+      if (!isMounted) return;
+      setPhases(getElectionPhases());
+    });
+    return () => { isMounted = false; };
   }, []);
 
-  const handleKeyDown = useCallback((e, id) => {
+  const handlePhaseClick = useCallback((phase) => {
+    setActivePhase(phase.id);
+    // Fire analytics event (non-blocking).
+    trackTimelinePhase(phase.id, phase.title);
+  }, []);
+
+  const handleKeyDown = useCallback((e, phase) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      setActivePhase(id);
+      handlePhaseClick(phase);
     }
-  }, []);
+  }, [handlePhaseClick]);
 
   return (
     <article className="glass-panel animate-fade-in delay-100" aria-label="Election Timeline">
       <h2 className="text-gradient" style={{ fontSize: '1.5rem', marginBottom: '1.5rem' }}>
         Election Timeline
       </h2>
-      
+
       <div className="timeline-container" role="list">
-        {electionPhases.map((phase) => (
-          <div 
-            key={phase.id} 
+        {phases.map((phase) => (
+          <div
+            key={phase.id}
             className={`timeline-item ${activePhase === phase.id ? 'active' : ''} ${activePhase > phase.id ? 'completed' : ''}`}
-            onClick={() => handlePhaseClick(phase.id)}
-            onKeyDown={(e) => handleKeyDown(e, phase.id)}
+            onClick={() => handlePhaseClick(phase)}
+            onKeyDown={(e) => handleKeyDown(e, phase)}
             role="listitem"
             tabIndex={0}
             aria-current={activePhase === phase.id ? 'step' : undefined}
             aria-label={`Phase ${phase.id}: ${phase.title}`}
           >
-            <div className="timeline-line" aria-hidden="true"></div>
+            <div className="timeline-line" aria-hidden="true" />
             <div className="timeline-marker" aria-hidden="true">
               <span className="material-symbols-outlined">{phase.icon}</span>
             </div>
