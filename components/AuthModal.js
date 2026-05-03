@@ -43,36 +43,43 @@ const FIREBASE_ERROR_MESSAGES = {
 const AuthModal = React.memo(function AuthModal({ onClose }) {
   const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
 
-  const [tab, setTab]         = useState('login');   // 'login' | 'signup'
-  const [email, setEmail]     = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError]     = useState('');
-  const [busy, setBusy]       = useState(false);
+  const [tab, setTab]               = useState('login');   // 'login' | 'signup'
+  const [email, setEmail]           = useState('');
+  const [password, setPassword]     = useState('');
+  const [authErrorMessage, setAuthErrorMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const clearError = useCallback(() => setError(''), []);
+  const clearAuthError = useCallback(() => setAuthErrorMessage(''), []);
 
   const handleTabChange = useCallback((nextTab) => {
     setTab(nextTab);
-    clearError();
-  }, [clearError]);
+    clearAuthError();
+  }, [clearAuthError]);
+
+  const handleOverlayClick = useCallback((event) => {
+    if (event.target === event.currentTarget) onClose();
+  }, [onClose]);
+
+  const handleEmailChange = useCallback((event) => setEmail(event.target.value), []);
+  const handlePasswordChange = useCallback((event) => setPassword(event.target.value), []);
 
   const handleGoogleSignIn = useCallback(async () => {
-    setBusy(true);
-    setError('');
+    setIsSubmitting(true);
+    setAuthErrorMessage('');
     try {
       await signInWithGoogle();
       onClose();
-    } catch (err) {
-      setError('Google sign-in failed. Please try again.');
+    } catch (authError) {
+      setAuthErrorMessage('Google sign-in failed. Please try again.');
     } finally {
-      setBusy(false);
+      setIsSubmitting(false);
     }
   }, [signInWithGoogle, onClose]);
 
-  const handleEmailSubmit = useCallback(async (e) => {
-    e.preventDefault();
-    setBusy(true);
-    setError('');
+  const handleEmailSubmit = useCallback(async (event) => {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setAuthErrorMessage('');
     try {
       if (tab === 'login') {
         await signInWithEmail(email, password);
@@ -80,10 +87,10 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
         await signUpWithEmail(email, password);
       }
       onClose();
-    } catch (err) {
-      setError(FIREBASE_ERROR_MESSAGES[err.code] ?? 'Authentication failed. Please try again.');
+    } catch (authError) {
+      setAuthErrorMessage(FIREBASE_ERROR_MESSAGES[authError.code] ?? 'Authentication failed. Please try again.');
     } finally {
-      setBusy(false);
+      setIsSubmitting(false);
     }
   }, [tab, email, password, signInWithEmail, signUpWithEmail, onClose]);
 
@@ -93,11 +100,16 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
       role="dialog"
       aria-modal="true"
       aria-label="Sign in to Election Process Assistant"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={handleOverlayClick}
     >
       <div className="modal-card animate-fade-in">
-        <button className="modal-close" onClick={onClose} aria-label="Close sign-in modal">
-          <span className="material-symbols-outlined">close</span>
+        <button
+          className="modal-close"
+          onClick={onClose}
+          aria-label="Close sign-in modal"
+          id="auth-modal-close"
+        >
+          <span className="material-symbols-outlined" aria-hidden="true">close</span>
         </button>
 
         <h2 className="text-gradient" style={{ fontSize: '1.4rem', marginBottom: '0.4rem' }}>
@@ -108,25 +120,27 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
         </p>
 
         <div className="auth-tabs" role="tablist">
-          {['login', 'signup'].map((t) => (
+          {['login', 'signup'].map((tabOption) => (
             <button
-              key={t}
+              key={tabOption}
               role="tab"
-              aria-selected={tab === t}
-              className={`auth-tab ${tab === t ? 'active' : ''}`}
-              onClick={() => handleTabChange(t)}
+              aria-selected={tab === tabOption}
+              className={`auth-tab ${tab === tabOption ? 'active' : ''}`}
+              onClick={() => handleTabChange(tabOption)}
+              id={`auth-tab-${tabOption}`}
             >
-              {t === 'login' ? 'Sign In' : 'Sign Up'}
+              {tabOption === 'login' ? 'Sign In' : 'Sign Up'}
             </button>
           ))}
         </div>
 
         {/* Google */}
         <button
-          className={`btn-google ${busy ? 'auth-loading' : ''}`}
+          className={`btn-google ${isSubmitting ? 'auth-loading' : ''}`}
           onClick={handleGoogleSignIn}
-          disabled={busy}
+          disabled={isSubmitting}
           aria-label="Sign in with Google"
+          id="google-signin-button"
         >
           <GoogleIcon />
           Continue with Google
@@ -135,10 +149,20 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
         <div className="auth-divider" aria-hidden="true">or</div>
 
         {/* Email / Password */}
-        <form className={`auth-form ${busy ? 'auth-loading' : ''}`} onSubmit={handleEmailSubmit} noValidate>
-          {error && (
-            <div className="auth-error" role="alert" aria-live="assertive">
-              {error}
+        <form
+          className={`auth-form ${isSubmitting ? 'auth-loading' : ''}`}
+          onSubmit={handleEmailSubmit}
+          noValidate
+          aria-label={tab === 'login' ? 'Sign in with email' : 'Create account with email'}
+        >
+          {authErrorMessage && (
+            <div
+              id="auth-error-message"
+              className="auth-error"
+              role="alert"
+              aria-live="assertive"
+            >
+              {authErrorMessage}
             </div>
           )}
 
@@ -149,11 +173,13 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
               type="email"
               className="input-glass"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={handleEmailChange}
               placeholder="you@example.com"
               autoComplete="email"
               required
+              disabled={isSubmitting}
               aria-required="true"
+              aria-describedby={authErrorMessage ? 'auth-error-message' : undefined}
             />
           </div>
 
@@ -164,21 +190,24 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
               type="password"
               className="input-glass"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={handlePasswordChange}
               placeholder="••••••••"
               autoComplete={tab === 'login' ? 'current-password' : 'new-password'}
               required
+              disabled={isSubmitting}
               aria-required="true"
               minLength={6}
+              aria-describedby={authErrorMessage ? 'auth-error-message' : undefined}
             />
           </div>
 
           <button
             type="submit"
             className="btn-primary auth-submit"
-            disabled={busy || !email || !password}
+            disabled={isSubmitting || !email || !password}
+            id="auth-submit-button"
           >
-            {busy ? 'Please wait…' : tab === 'login' ? 'Sign In' : 'Create Account'}
+            {isSubmitting ? 'Please wait…' : tab === 'login' ? 'Sign In' : 'Create Account'}
           </button>
         </form>
       </div>

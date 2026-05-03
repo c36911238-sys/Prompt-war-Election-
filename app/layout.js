@@ -1,4 +1,5 @@
 import './globals.css';
+import AuthProviderWrapper from '@/components/AuthProviderWrapper';
 
 export const metadata = {
   title: 'Election Process Assistant | AI-Powered Civic Guide',
@@ -34,10 +35,3 @@ export default function RootLayout({ children }) {
     </html>
   );
 }
-
-/**
- * Thin server-side shell that imports the client AuthProvider.
- * By keeping this import at the leaf of the server tree, Firebase
- * initialisation is deferred entirely to the browser.
- */
-import AuthProviderWrapper from '@/components/AuthProviderWrapper';

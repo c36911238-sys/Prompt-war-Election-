@@ -10,11 +10,53 @@
 
 import { generateElectionResponse } from '@/lib/vertexService';
 
+// ---------------------------------------------------------------------------
+// Rate limiter
+// ---------------------------------------------------------------------------
+
+const RATE_LIMIT_MAX       = 10;
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+
+// In-memory rate limiter: resets on server restart.
+// Prevents Vertex AI quota exhaustion from a single client.
+const rateLimitMap = new Map();
+
+/**
+ * Returns true if the given client IP has exceeded the rate limit.
+ *
+ * @param {string} clientIp - The client's IP address
+ * @returns {boolean}
+ */
+function isRateLimited(clientIp) {
+  const now          = Date.now();
+  const clientRecord = rateLimitMap.get(clientIp) ?? {
+    count:       0,
+    windowStart: now,
+  };
+
+  if (now - clientRecord.windowStart > RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.set(clientIp, { count: 1, windowStart: now });
+    return false;
+  }
+
+  if (clientRecord.count >= RATE_LIMIT_MAX) return true;
+
+  rateLimitMap.set(clientIp, {
+    ...clientRecord,
+    count: clientRecord.count + 1,
+  });
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Fallback responses
+// ---------------------------------------------------------------------------
+
 /** Keyword-based fallback responses used when Vertex AI is unavailable. */
 const FALLBACK_RESPONSES = {
-  register: 'Voter registration is the first step in the electoral process. You typically need a valid ID and proof of address to register online or at a local government office.',
-  vote:     'On voting day, bring valid photo identification to your designated polling station. Polls are usually open from early morning until early evening.',
-  candidate:'Candidates are individuals who stand for election. They submit nomination papers, campaign to present their policies, and are listed on the official ballot.',
+  register:  'Voter registration is the first step in the electoral process. You typically need a valid ID and proof of address to register online or at a local government office.',
+  vote:      'On voting day, bring valid photo identification to your designated polling station. Polls are usually open from early morning until early evening.',
+  candidate: 'Candidates are individuals who stand for election. They submit nomination papers, campaign to present their policies, and are listed on the official ballot.',
 };
 
 const FALLBACK_DEFAULT =
@@ -23,34 +65,54 @@ const FALLBACK_DEFAULT =
 /**
  * Select the most relevant fallback response for a given message.
  *
- * @param {string} message - The original user message
+ * @param {string} userMessage - The original user message
  * @returns {string} A plain-English fallback answer
  */
-function selectFallback(message) {
-  const lower = message.toLowerCase();
-  if (lower.includes('register') || lower.includes('registration')) {
+function selectFallback(userMessage) {
+  const lowerCaseMessage = userMessage.toLowerCase();
+  if (lowerCaseMessage.includes('register') || lowerCaseMessage.includes('registration')) {
     return FALLBACK_RESPONSES.register;
   }
-  if (lower.includes('vote') || lower.includes('voting')) {
+  if (lowerCaseMessage.includes('vote') || lowerCaseMessage.includes('voting')) {
     return FALLBACK_RESPONSES.vote;
   }
-  if (lower.includes('who') || lower.includes('candidate')) {
+  if (lowerCaseMessage.includes('who') || lowerCaseMessage.includes('candidate')) {
     return FALLBACK_RESPONSES.candidate;
   }
   return FALLBACK_DEFAULT;
 }
 
-export async function POST(req) {
-  let message  = 'Unknown';
-  let language = 'en';
+// ---------------------------------------------------------------------------
+// Route handler
+// ---------------------------------------------------------------------------
+
+export async function POST(request) {
+  // Rate limiting — checked before any other logic
+  const clientIp = request.headers.get('x-forwarded-for') ?? 'unknown';
+  if (isRateLimited(clientIp)) {
+    return Response.json(
+      { error: 'Too many requests. Please wait a moment.' },
+      { status: 429 }
+    );
+  }
+
+  let userMessage  = '';
+  let languageCode = 'en';
 
   try {
-    const body = await req.json();
-    message    = body.message  || message;
-    language   = body.language || language;
+    const requestBody = await request.json();
+    userMessage  = (requestBody.message  || '').trim();
+    languageCode =  requestBody.language || languageCode;
 
-    const content = await generateElectionResponse(message, language);
-    return Response.json({ response: content });
+    if (!userMessage) {
+      return Response.json(
+        { error: 'message is required' },
+        { status: 400 }
+      );
+    }
+
+    const electionAnswer = await generateElectionResponse(userMessage, languageCode);
+    return Response.json({ response: electionAnswer });
 
   } catch (error) {
     // Log the full error server-side; never expose internals to the client.
@@ -60,7 +122,7 @@ export async function POST(req) {
     await new Promise((resolve) => setTimeout(resolve, 800));
 
     return Response.json(
-      { response: selectFallback(message) },
+      { response: selectFallback(userMessage) },
       { status: 200 }
     );
   }

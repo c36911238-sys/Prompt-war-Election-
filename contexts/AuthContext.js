@@ -78,9 +78,11 @@ export function AuthProvider({ children }) {
  * Throws if used outside of <AuthProvider>.
  */
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used inside <AuthProvider>');
+  const authContext = useContext(AuthContext);
+  if (authContext === null || authContext === undefined) {
+    throw new Error(
+      'useAuth must be used within an AuthProvider'
+    );
   }
-  return context;
+  return authContext;
 }

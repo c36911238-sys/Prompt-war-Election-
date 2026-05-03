@@ -27,34 +27,34 @@ function getTTSClient() {
 }
 
 export async function POST(req) {
-  let text = '';
-  let languageCode = 'en-US';
+  let ttsInputText  = '';
+  let languageCode  = 'en-US';
 
   try {
-    const body = await req.json();
-    text = (body.text || '').slice(0, 1000); // Hard cap — avoid abuse
-    languageCode = body.languageCode || 'en-US';
+    const requestBody = await req.json();
+    ttsInputText = (requestBody.text || '').slice(0, 1000); // Hard cap — avoid abuse
+    languageCode = requestBody.languageCode || 'en-US';
 
-    if (!text) {
+    if (!ttsInputText) {
       return Response.json({ error: 'text is required' }, { status: 400 });
     }
 
-    const client = getTTSClient();
+    const ttsClient = getTTSClient();
 
-    const [response] = await client.synthesizeSpeech({
-      input:       { text },
+    const [ttsApiResponse] = await ttsClient.synthesizeSpeech({
+      input:       { text: ttsInputText },
       voice:       { languageCode, ssmlGender: 'NEUTRAL' },
       audioConfig: { audioEncoding: 'MP3' },
     });
 
     // Convert Buffer to base64 string for JSON transport.
-    const audioBase64 = Buffer.from(response.audioContent).toString('base64');
+    const audioBase64 = Buffer.from(ttsApiResponse.audioContent).toString('base64');
 
     return Response.json({ audioContent: audioBase64 });
 
-  } catch (error) {
+  } catch (ttsClientError) {
     // Never expose raw error to the client.
-    console.error('[TTS] synthesizeSpeech failed:', error.message);
+    console.error('[TTS] synthesizeSpeech failed:', ttsClientError.message);
     return Response.json(
       { error: 'Text-to-speech generation failed. Please try again.' },
       { status: 500 }

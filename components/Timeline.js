@@ -32,9 +32,9 @@ const Timeline = React.memo(function Timeline() {
     trackTimelinePhase(phase.id, phase.title);
   }, []);
 
-  const handleKeyDown = useCallback((e, phase) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
+  const handleKeyDown = useCallback((event, phase) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
       handlePhaseClick(phase);
     }
   }, [handlePhaseClick]);
@@ -51,11 +51,12 @@ const Timeline = React.memo(function Timeline() {
             key={phase.id}
             className={`timeline-item ${activePhase === phase.id ? 'active' : ''} ${activePhase > phase.id ? 'completed' : ''}`}
             onClick={() => handlePhaseClick(phase)}
-            onKeyDown={(e) => handleKeyDown(e, phase)}
+            onKeyDown={(event) => handleKeyDown(event, phase)}
             role="listitem"
             tabIndex={0}
             aria-current={activePhase === phase.id ? 'step' : undefined}
             aria-label={`Phase ${phase.id}: ${phase.title}`}
+            data-testid={`timeline-phase-${phase.id}`}
           >
             <div className="timeline-line" aria-hidden="true" />
             <div className="timeline-marker" aria-hidden="true">
