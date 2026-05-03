@@ -26,6 +26,15 @@ function getTTSClient() {
   return ttsClient;
 }
 
+/**
+ * Handle POST /api/tts requests.
+ *
+ * Converts the provided text to MP3 audio using Google Cloud TTS,
+ * returning it as a base64-encoded string for browser playback.
+ *
+ * @param {Request} req - Incoming Next.js Request object
+ * @returns {Promise<Response>} JSON response with { audioContent } or { error }
+ */
 export async function POST(req) {
   let ttsInputText  = '';
   let languageCode  = 'en-US';
@@ -39,9 +48,9 @@ export async function POST(req) {
       return Response.json({ error: 'text is required' }, { status: 400 });
     }
 
-    const ttsClient = getTTSClient();
+    const ttsClientInstance = getTTSClient();
 
-    const [ttsApiResponse] = await ttsClient.synthesizeSpeech({
+    const [ttsApiResponse] = await ttsClientInstance.synthesizeSpeech({
       input:       { text: ttsInputText },
       voice:       { languageCode, ssmlGender: 'NEUTRAL' },
       audioConfig: { audioEncoding: 'MP3' },

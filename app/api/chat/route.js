@@ -86,6 +86,15 @@ function selectFallback(userMessage) {
 // Route handler
 // ---------------------------------------------------------------------------
 
+/**
+ * Handle POST /api/chat requests.
+ *
+ * Validates the request body, delegates to generateElectionResponse,
+ * and falls back to curated static answers on any credential/network failure.
+ *
+ * @param {Request} request - Incoming Next.js Request object
+ * @returns {Promise<Response>} JSON response with { response } or { error }
+ */
 export async function POST(request) {
   // Rate limiting — checked before any other logic
   const clientIp = request.headers.get('x-forwarded-for') ?? 'unknown';
@@ -114,9 +123,9 @@ export async function POST(request) {
     const electionAnswer = await generateElectionResponse(userMessage, languageCode);
     return Response.json({ response: electionAnswer });
 
-  } catch (error) {
+  } catch (vertexApiError) {
     // Log the full error server-side; never expose internals to the client.
-    console.error('[API /chat] Vertex AI error:', error.message);
+    console.error('[API /chat] Vertex AI error:', vertexApiError.message);
 
     // Simulate realistic latency so the UI typing indicator remains visible.
     await new Promise((resolve) => setTimeout(resolve, 800));

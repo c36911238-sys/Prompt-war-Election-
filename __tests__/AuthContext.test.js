@@ -3,7 +3,6 @@
  * Verifies that useAuth throws when used outside AuthProvider.
  */
 
-import React from 'react';
 import { renderHook } from '@testing-library/react';
 import { useAuth } from '../contexts/AuthContext';
 

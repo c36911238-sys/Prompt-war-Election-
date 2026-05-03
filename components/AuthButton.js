@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import dynamic from 'next/dynamic';
 
@@ -26,7 +27,7 @@ const AuthButton = React.memo(function AuthButton() {
       {user ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {user.photoURL && (
-            <img
+            <Image
               src={user.photoURL}
               alt={`${user.displayName || 'User'} avatar`}
               width={32}

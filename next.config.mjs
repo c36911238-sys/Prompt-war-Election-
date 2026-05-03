@@ -6,6 +6,14 @@ const nextConfig = {
   // Optimise images: serve AVIF/WebP automatically
   images: {
     formats: ['image/avif', 'image/webp'],
+    // Allow Next.js <Image /> to serve Google OAuth user avatars.
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname:  'lh3.googleusercontent.com',
+        pathname:  '/**',
+      },
+    ],
   },
 
   async headers() {

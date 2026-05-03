@@ -33,14 +33,14 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Initialise loading=false immediately when Firebase is unconfigured (auth===null).
+  // This avoids a synchronous setState inside the effect body.
+  const [loading, setLoading] = useState(auth !== null);
 
   // Subscribe to Firebase auth state changes (browser only).
+  // Skipped entirely when Firebase is unconfigured.
   useEffect(() => {
-    if (!auth) {
-      setLoading(false);
-      return;
-    }
+    if (!auth) return;
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setLoading(false);
@@ -64,13 +64,13 @@ export function AuthProvider({ children }) {
     return signOut(auth);
   }, []);
 
-  // Memoised value to prevent unnecessary re-renders downstream.
-  const value = useMemo(
+  // Memoised context value to prevent unnecessary re-renders downstream.
+  const authContextValue = useMemo(
     () => ({ user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, logout }),
     [user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, logout]
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={authContextValue}>{children}</AuthContext.Provider>;
 }
 
 /**

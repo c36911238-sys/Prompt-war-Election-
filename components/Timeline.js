@@ -32,12 +32,18 @@ const Timeline = React.memo(function Timeline() {
     trackTimelinePhase(phase.id, phase.title);
   }, []);
 
-  const handleKeyDown = useCallback((event, phase) => {
+  const handleTimelineItemClick = useCallback((event) => {
+    const phaseId = Number(event.currentTarget.dataset.phaseid);
+    const phase   = phases.find((p) => p.id === phaseId);
+    if (phase) handlePhaseClick(phase);
+  }, [phases, handlePhaseClick]);
+
+  const handleTimelineItemKeyDown = useCallback((event) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      handlePhaseClick(phase);
+      handleTimelineItemClick(event);
     }
-  }, [handlePhaseClick]);
+  }, [handleTimelineItemClick]);
 
   return (
     <article className="glass-panel animate-fade-in delay-100" aria-label="Election Timeline">
@@ -50,13 +56,14 @@ const Timeline = React.memo(function Timeline() {
           <div
             key={phase.id}
             className={`timeline-item ${activePhase === phase.id ? 'active' : ''} ${activePhase > phase.id ? 'completed' : ''}`}
-            onClick={() => handlePhaseClick(phase)}
-            onKeyDown={(event) => handleKeyDown(event, phase)}
+            onClick={handleTimelineItemClick}
+            onKeyDown={handleTimelineItemKeyDown}
             role="listitem"
             tabIndex={0}
             aria-current={activePhase === phase.id ? 'step' : undefined}
             aria-label={`Phase ${phase.id}: ${phase.title}`}
             data-testid={`timeline-phase-${phase.id}`}
+            data-phaseid={phase.id}
           >
             <div className="timeline-line" aria-hidden="true" />
             <div className="timeline-marker" aria-hidden="true">

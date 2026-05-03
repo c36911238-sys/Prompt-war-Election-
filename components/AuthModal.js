@@ -56,6 +56,10 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
     clearAuthError();
   }, [clearAuthError]);
 
+  const handleTabButtonClick = useCallback((event) => {
+    handleTabChange(event.currentTarget.dataset.tab);
+  }, [handleTabChange]);
+
   const handleOverlayClick = useCallback((event) => {
     if (event.target === event.currentTarget) onClose();
   }, [onClose]);
@@ -69,7 +73,7 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
     try {
       await signInWithGoogle();
       onClose();
-    } catch (authError) {
+    } catch {
       setAuthErrorMessage('Google sign-in failed. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -126,7 +130,8 @@ const AuthModal = React.memo(function AuthModal({ onClose }) {
               role="tab"
               aria-selected={tab === tabOption}
               className={`auth-tab ${tab === tabOption ? 'active' : ''}`}
-              onClick={() => handleTabChange(tabOption)}
+              onClick={handleTabButtonClick}
+              data-tab={tabOption}
               id={`auth-tab-${tabOption}`}
             >
               {tabOption === 'login' ? 'Sign In' : 'Sign Up'}
